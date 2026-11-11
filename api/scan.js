@@ -49,6 +49,21 @@ const SCHEMA = {
 module.exports = async (req, res) => {
   const key = process.env.GEMINI_API_KEY;
   if (!key) return res.status(503).json({ error: 'AI scan is not set up yet' });
+  if (req.method === 'GET' && req.query && req.query.probe) {
+    // Speed test: tiny text-only request to one model, with low thinking.
+    const m = String(req.query.probe).replace(/[^a-z0-9.\-]/gi, '');
+    const t0 = Date.now();
+    try {
+      const gc = req.query.think === 'none' ? {} : { thinkingConfig: req.query.think === 'budget' ? { thinkingBudget: 0 } : { thinkingLevel: 'low' } };
+      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key.trim() },
+        body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: 'Reply with the word ok.' }] }], generationConfig: gc }),
+        signal: AbortSignal.timeout(25000),
+      });
+      const d = await r.json();
+      return res.status(200).json({ model: m, status: r.status, ms: Date.now() - t0, text: d?.candidates?.[0]?.content?.parts?.map(p => p.text).join('') || null, err: d?.error?.message?.slice(0, 200) || null });
+    } catch (e) { return res.status(200).json({ model: m, ms: Date.now() - t0, err: e.name + ': ' + e.message }); }
+  }
   if (req.method === 'GET') {
     // Health check: lists the model names this key can use (never shows the key).
     try {
