@@ -65,14 +65,26 @@ module.exports = async (req, res) => {
       generationConfig: { temperature: 0.2, responseMimeType: 'application/json', responseSchema: SCHEMA },
     };
 
-    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`, {
+    const call = b => fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
-      body: JSON.stringify(body),
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key.trim() },
+      body: JSON.stringify(b),
     });
-    if (!r.ok) return res.status(502).json({ error: 'AI service error', status: r.status });
+    let r = await call(body);
+    if (r.status === 400) {
+      // Retry once without the strict schema (some models/versions reject it).
+      const simple = { ...body, generationConfig: { temperature: 0.2, responseMimeType: 'application/json' } };
+      simple.contents[0].parts[0].text += '\nReturn exactly: {"issues":[{"type","severity","confidence","title","where","why","fixes"}]}';
+      r = await call(simple);
+    }
+    if (!r.ok) {
+      let detail = '';
+      try { detail = (await r.json())?.error?.message || ''; } catch (e) { /* ignore */ }
+      return res.status(502).json({ error: 'AI service error', status: r.status, detail: detail.slice(0, 300) });
+    }
     const data = await r.json();
-    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '{"issues":[]}';
+    let text = data?.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '{"issues":[]}';
+    text = text.replace(/^```(json)?/i, '').replace(/```$/, '').trim();
     const parsed = JSON.parse(text);
     return res.status(200).json({ issues: (parsed.issues || []).slice(0, 6) });
   } catch (e) {
