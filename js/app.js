@@ -12,13 +12,14 @@
     lang: 'en', voice: 'auto', demo: true, senior: false, keepPhotos: false,
     profile: { done: false, name: '', home: 'sdu', people: [], appl: ['dehum'] },
     rooms: [], active: null, timer: null, away: null, badges: [], stats: { timers: 0, greens: 0 },
+    dewy: { skin: 'mint', acc: 'sprout' },
   });
   let st = load();
   function load() {
     let s;
     try { s = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch (e) { s = {}; }
     const d = defaults();
-    const out = { ...d, ...s, profile: { ...d.profile, ...(s.profile || {}) }, stats: { ...d.stats, ...(s.stats || {}) } };
+    const out = { ...d, ...s, profile: { ...d.profile, ...(s.profile || {}) }, stats: { ...d.stats, ...(s.stats || {}) }, dewy: { ...d.dewy, ...(s.dewy || {}) } };
     if (!out.rooms || !out.rooms.length) {            // migrate single-room data from the first version
       const r = newRoom(out.lang === 'zh' ? '我的房間' : 'My room');
       r.checkins = s.checkins || []; r.scans = s.scans || []; r.fixes = s.fixes || {};
@@ -30,7 +31,8 @@
   }
   function save() { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch (e) { /* storage full or blocked */ } }
   let weather = null, view = 'home', sub = null, scanFiles = [], scanning = false, checkMode = null, answers = {};
-  let obStep = 0, addingRoom = false, dewyTip = 0;
+  let obStep = 0, addingRoom = false, dewyTip = 0, enterNext = true, previewMood = null;
+  const L = (en, zh) => st.lang === 'zh' ? zh : en;
   const T = () => window.I18N[st.lang];
   const room = () => st.rooms.find(r => r.id === st.active);
   const rn = r => ['My room', '我的房間'].includes(r.name) ? T().defaultRoom : ['Mum’s flat', '媽媽的家'].includes(r.name) ? (st.lang === 'zh' ? '媽媽的家' : 'Mum’s flat') : r.name;
@@ -63,20 +65,62 @@
   };
   const icon = (n, cls = '') => `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${I[n]}</svg>`;
 
-  /* ---------- mascot ---------- */
-  function dewy(mood, size = 72) {
-    const body = { happy: '#2EC4B6', worried: '#F5B83D', alarmed: '#F26B6B', calm: '#2EC4B6' }[mood];
-    const mouth = { happy: 'M27 45 q9 8 18 0', worried: 'M28 48 q8 -4 16 0', alarmed: 'M31 44 a5 6 0 1 0 10 0 a5 6 0 1 0 -10 0', calm: 'M28 46 h16' }[mood];
-    const brows = mood === 'worried' ? '<path d="M22 30 l8 -3 M50 30 l-8 -3" stroke="#0B1F3A" stroke-width="2.5" stroke-linecap="round"/>'
-      : mood === 'alarmed' ? '<path d="M22 27 l8 3 M50 27 l-8 3" stroke="#0B1F3A" stroke-width="2.5" stroke-linecap="round"/>' : '';
-    const sweat = mood === 'alarmed' || mood === 'worried' ? '<path d="M58 22 q3 5 0 8 q-3 -3 0 -8z" fill="#9FD8F5"/>' : '';
-    return `<svg class="dewy dewy-${mood}" width="${size}" height="${size}" viewBox="0 0 72 72" aria-hidden="true">
-      <path d="M36 4 C36 4 12 30 12 46 a24 24 0 0 0 48 0 C60 30 36 4 36 4z" fill="${body}"/>
-      <ellipse cx="26" cy="30" rx="4" ry="7" fill="#fff" opacity=".35"/>
-      <circle cx="28" cy="37" r="3.6" fill="#0B1F3A"/><circle cx="44" cy="37" r="3.6" fill="#0B1F3A"/>
-      <circle cx="29.3" cy="35.8" r="1.2" fill="#fff"/><circle cx="45.3" cy="35.8" r="1.2" fill="#fff"/>
-      ${brows}<path d="${mouth}" stroke="#0B1F3A" stroke-width="3" fill="${mood === 'alarmed' ? '#0B1F3A' : 'none'}" stroke-linecap="round"/>
-      <circle cx="21" cy="45" r="3.5" fill="#FF8FA3" opacity=".45"/><circle cx="51" cy="45" r="3.5" fill="#FF8FA3" opacity=".45"/>${sweat}</svg>`;
+  /* ---------- mascot: Dewy (skins + accessories + animation) ---------- */
+  const SKINS = {
+    mint: { c: ['#7DF9D9', '#26CFA9'], en: 'Mint', zh: '薄荷' },
+    sky: { c: ['#A6E6FF', '#4D9DFF'], en: 'Sky', zh: '天空' },
+    bubblegum: { c: ['#FFC0E3', '#FF5FAE'], en: 'Bubblegum', zh: '香口膠' },
+    lilac: { c: ['#DCCBFF', '#9470FF'], en: 'Lilac', zh: '紫丁香' },
+    peach: { c: ['#FFD2B3', '#FF8A6E'], en: 'Peach', zh: '蜜桃' },
+    sunset: { c: ['#FFE07A', '#FF6FA3'], en: 'Sunset', zh: '日落', need: 'badges3' },
+    galaxy: { c: ['#8E6BFF', '#22185E'], en: 'Galaxy', zh: '銀河', need: 'badges4', stars: true },
+    rainbow: { c: ['#FF8FB1', '#FFD36E', '#6FF7C8', '#7AB8FF', '#B69CFF'], en: 'Rainbow', zh: '彩虹', need: 'green' },
+  };
+  const ACCS = {
+    none: { en: 'None', zh: '無' },
+    sprout: { en: 'Eco sprout', zh: '小嫩芽' },
+    shades: { en: 'Cool shades', zh: '太陽眼鏡' },
+    headphones: { en: 'Headphones', zh: '耳筒' },
+    bow: { en: 'Bow', zh: '蝴蝶結' },
+    party: { en: 'Party hat', zh: '派對帽' },
+    beanie: { en: 'Beanie', zh: '冷帽' },
+    crown: { en: 'Crown', zh: '皇冠', need: 's7' },
+  };
+  const unlocked = need => !need ? true : need === 'badges3' ? st.badges.length >= 3 : need === 'badges4' ? st.badges.length >= 4 : st.badges.includes(need);
+  const needText = need => ({ badges3: L('Earn 3 badges', '獲得 3 個徽章'), badges4: L('Earn 4 badges', '獲得 4 個徽章'), green: L('Get back to Green', '回到綠色'), s7: L('7-day streak', '連續 7 天') }[need]);
+  const ACC_SVG = {
+    none: '', 
+    sprout: '<path d="M36 6 q0 -6 0 -8" stroke="#2E9E5B" stroke-width="2.4" stroke-linecap="round"/><path d="M36 -2 q-10 -8 -14 0 q8 4 14 0z" fill="#5BE08A"/><path d="M36 -2 q9 -10 15 -3 q-7 6 -15 3z" fill="#3CCB72"/>',
+    shades: '<g><rect x="19" y="31" width="15" height="11" rx="5" fill="#1B1646"/><rect x="38" y="31" width="15" height="11" rx="5" fill="#1B1646"/><path d="M34 35 h4" stroke="#1B1646" stroke-width="2.5"/><path d="M22 33.5 l5 0" stroke="#fff" stroke-width="1.6" stroke-linecap="round" opacity=".7"/><path d="M41 33.5 l5 0" stroke="#fff" stroke-width="1.6" stroke-linecap="round" opacity=".7"/></g>',
+    headphones: '<path d="M13 40 C13 14 59 14 59 40" stroke="#FF7AC6" stroke-width="4" fill="none" stroke-linecap="round"/><rect x="7" y="35" width="10" height="16" rx="5" fill="#FF7AC6"/><rect x="55" y="35" width="10" height="16" rx="5" fill="#FF7AC6"/><rect x="9" y="38" width="4" height="10" rx="2" fill="#fff" opacity=".5"/>',
+    bow: '<g transform="translate(47 17) rotate(25)"><path d="M0 0 L-10 -7 L-10 7z" fill="#FF5FAE"/><path d="M0 0 L10 -7 L10 7z" fill="#FF5FAE"/><circle r="3.2" fill="#FFC0E3"/></g>',
+    party: '<g transform="rotate(-12 36 10)"><path d="M27 15 L36 -10 L45 15z" fill="#FFC857"/><path d="M30 7 L42 7 M28.5 11 L43.5 11 M32 2 L40 2" stroke="#FF5FAE" stroke-width="2.2"/><circle cx="36" cy="-11" r="3.5" fill="#7AD3FF"/></g>',
+    beanie: '<path d="M22 20 q14 -22 28 0z" fill="#7AD3FF"/><rect x="20" y="17" width="32" height="6" rx="3" fill="#4D9DFF"/><circle cx="36" cy="5" r="4" fill="#fff"/>',
+    crown: '<path d="M24 18 L25 5 L31 11 L36 2 L41 11 L47 5 L48 18z" fill="#FFD36E" stroke="#E9A23B" stroke-width="1.5" stroke-linejoin="round"/><circle cx="36" cy="13" r="2" fill="#FF6B8B"/><circle cx="29" cy="14" r="1.5" fill="#7AD3FF"/><circle cx="43" cy="14" r="1.5" fill="#4BF3A0"/>',
+  };
+  let dewyN = 0;
+  function dewy(mood, size = 72, look = st.dewy) {
+    const id = 'dg' + (++dewyN), sk = SKINS[look.skin] || SKINS.mint, ink = sk.stars ? '#FFFFFF' : '#1B1646';
+    const stops = sk.c.map((c, i) => `<stop offset="${i / (sk.c.length - 1)}" stop-color="${c}"/>`).join('');
+    const mouth = { happy: 'M27 45 q9 9 18 0', worried: 'M28 49 q8 -5 16 0', alarmed: 'M31 45 a5 6 0 1 0 10 0 a5 6 0 1 0 -10 0', calm: 'M29 46 q7 4 14 0' }[mood];
+    const brows = mood === 'worried' ? `<path d="M22 29 l8 -3 M50 29 l-8 -3" stroke="${ink}" stroke-width="2.5" stroke-linecap="round"/>`
+      : mood === 'alarmed' ? `<path d="M22 26 l8 3 M50 26 l-8 3" stroke="${ink}" stroke-width="2.5" stroke-linecap="round"/>` : '';
+    const sweat = mood === 'alarmed' || mood === 'worried' ? '<path d="M60 20 q3.5 6 0 9 q-3.5 -3 0 -9z" fill="#A6E6FF"/>' : '';
+    const stars = sk.stars ? '<g fill="#fff"><circle cx="22" cy="52" r="1"/><circle cx="48" cy="58" r="1.2"/><circle cx="52" cy="44" r=".9"/><circle cx="30" cy="22" r=".8"/><circle cx="40" cy="62" r=".8"/></g>' : '';
+    const shades = look.acc === 'shades';
+    const eyes = shades ? '' : mood === 'happy'
+      ? `<g class="d-eyes"><circle cx="28" cy="37" r="4" fill="${ink}"/><circle cx="44" cy="37" r="4" fill="${ink}"/><circle cx="29.5" cy="35.5" r="1.5" fill="${sk.stars ? '#22185E' : '#fff'}"/><circle cx="45.5" cy="35.5" r="1.5" fill="${sk.stars ? '#22185E' : '#fff'}"/></g>`
+      : `<g class="d-eyes"><circle cx="28" cy="37" r="3.6" fill="${ink}"/><circle cx="44" cy="37" r="3.6" fill="${ink}"/><circle cx="29.3" cy="35.8" r="1.2" fill="${sk.stars ? '#22185E' : '#fff'}"/><circle cx="45.3" cy="35.8" r="1.2" fill="${sk.stars ? '#22185E' : '#fff'}"/></g>`;
+    const behind = look.acc === 'headphones' ? ACC_SVG.headphones : '';
+    const front = look.acc === 'headphones' ? '' : (ACC_SVG[look.acc] || '');
+    return `<svg class="dewy dewy-${mood}" width="${size}" height="${size}" viewBox="-4 -14 80 88" aria-hidden="true">
+      <defs><linearGradient id="${id}" x1="0" y1="0" x2="0.3" y2="1">${stops}</linearGradient></defs>
+      <ellipse cx="36" cy="72" rx="18" ry="3" fill="#000" opacity=".18"/>
+      <g class="d-body">${behind}
+      <path d="M36 4 C36 4 12 30 12 46 a24 24 0 0 0 48 0 C60 30 36 4 36 4z" fill="url(#${id})"/>${stars}
+      <ellipse cx="25" cy="30" rx="4" ry="8" fill="#fff" opacity=".45" transform="rotate(20 25 30)"/>
+      ${eyes}${brows}<path d="${mouth}" stroke="${ink}" stroke-width="3" fill="${mood === 'alarmed' ? ink : mood === 'happy' ? '#FF7A93' : 'none'}" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="20" cy="45" r="4" fill="#FF6FA3" opacity=".45"/><circle cx="52" cy="45" r="4" fill="#FF6FA3" opacity=".45"/>${sweat}${front}</g></svg>`;
   }
   const moodOf = lvl => ({ green: 'happy', amber: 'worried', red: 'alarmed' }[lvl] || 'calm');
 
@@ -142,7 +186,7 @@
     if (reduced()) return;
     const c = document.createElement('canvas'); c.className = 'confetti';
     c.width = innerWidth; c.height = innerHeight; document.body.appendChild(c);
-    const g = c.getContext('2d'), cols = ['#2EC4B6', '#22C55E', '#F5B83D', '#9FD8F5', '#0B1F3A'];
+    const g = c.getContext('2d'), cols = ['#4BF3C8', '#FF7AC6', '#FFC857', '#7AD3FF', '#B69CFF'];
     const ps = Array.from({ length: 90 }, () => ({ x: c.width / 2, y: c.height / 3, vx: (Math.random() - .5) * 12, vy: Math.random() * -12 - 2, s: 4 + Math.random() * 5, c: cols[Math.random() * cols.length | 0], r: Math.random() * 6 }));
     let f = 0;
     (function tick() {
@@ -216,7 +260,7 @@
     const C = 2 * Math.PI * 52;
     return `<div class="ring"><svg viewBox="0 0 120 120"><circle class="track" cx="60" cy="60" r="52" fill="none" stroke-width="12"/>
       <circle class="meter" cx="60" cy="60" r="52" fill="none" stroke="var(--lvl)" stroke-width="12" stroke-linecap="round" stroke-dasharray="0 ${C}" data-to="${C * pct} ${C}"/></svg>
-      <div class="ring-label">${dewy(moodOf(level), 64)}</div></div>`;
+      <div class="ring-label"><button class="dewy-btn" data-go="more" data-sub-go="closet" aria-label="${L('Dress up Dewy', '打扮 Dewy')}">${dewy(moodOf(level), 70)}</button></div></div>`;
   }
   function roomChips() {
     const t = T();
@@ -271,6 +315,7 @@
     const timerBtn = canTime && !timerHere ? `<button class="btn primary" id="timerBtn">${icon(act.action === 'ventilate' ? 'window' : 'fan')}<span>${act.action === 'ventilate' ? t.startTimer(act.minutes) : t.startDehumTimer(act.hours)}</span></button>` : '';
     return `
     ${st.profile.name ? `<p class="hello">${t.hello(esc(st.profile.name))}</p>` : ''}
+    ${weather ? `<span class="weather-chip">${skyMood() === 'rain' ? '🌧' : skyMood() === 'humid' ? '🫧' : skyMood() === 'dry' ? '☀️' : '✨'} ${L('Live sky', '即時天空')}: ${weather.rh}% · ${L({ rain: 'Raining', humid: 'Very humid', dry: 'Nice & dry', calm: 'Mild' }[skyMood()], { rain: '下雨', humid: '非常潮濕', dry: '乾爽', calm: '溫和' }[skyMood()])}</span>` : ''}
     ${roomChips()}
     ${aw === 'away' ? awayCard('pre') : aw === 'back' ? awayCard('post') : ''}
     ${st.senior ? `<button class="btn primary block huge" id="speakBtn">${icon('speaker')}<span>${t.hearAdvice}</span></button>` : ''}
@@ -427,6 +472,19 @@
 
   function vMore() {
     const t = T();
+    if (sub === 'closet') {
+      const d = st.dewy, mood = previewMood || 'happy';
+      const sw = (kind, k, o) => { const ok = unlocked(o.need), on = d[kind] === k;
+        const face = kind === 'skin' ? `<i style="background:linear-gradient(160deg, ${o.c.join(', ')})"></i>` : dewy('calm', 40, { skin: d.skin, acc: k });
+        return `<button class="sw" data-${kind}="${k}" aria-pressed="${on}" ${ok ? '' : 'disabled'} title="${ok ? '' : esc(needText(o.need))}">${face}<span>${L(o.en, o.zh)}</span>${ok ? '' : `<span class="lock" aria-label="${L('Locked', '未解鎖')}">🔒</span>`}</button>`; };
+      return `${backBtn()}<h1 class="view-title">${L('Dewy’s closet', 'Dewy 的衣櫃')}</h1>
+      <p class="lead">${L('Dress up your little helper. Earn badges to unlock more!', '打扮你的小幫手，賺取徽章解鎖更多款式！')}</p>
+      <section class="card"><div class="closet-stage">${dewy(mood, 150)}</div>
+        <div class="mood-row">${[['happy', L('Green', '綠')], ['worried', L('Amber', '黃')], ['alarmed', L('Red', '紅')]].map(([m, l]) => `<button class="chip" data-mood="${m}" aria-selected="${mood === m}">${l}</button>`).join('')}</div></section>
+      <section class="card"><div class="label">${L('Colour', '顏色')}</div><div class="swatches">${Object.entries(SKINS).map(([k, o]) => sw('skin', k, o)).join('')}</div></section>
+      <section class="card"><div class="label">${L('Accessories', '配飾')}</div><div class="swatches">${Object.entries(ACCS).map(([k, o]) => sw('acc', k, o)).join('')}</div></section>
+      <p class="note">${icon('medal')}<span>${L('Locked items: Sunset = 3 badges · Galaxy = 4 badges · Rainbow = get back to Green · Crown = 7-day streak.', '解鎖條件：日落 = 3 個徽章 · 銀河 = 4 個徽章 · 彩虹 = 回到綠色 · 皇冠 = 連續 7 天。')}</span></p>`;
+    }
     if (sub === 'guide') return `${backBtn()}<h1 class="view-title">${t.guide}</h1>
       <section class="card">${t.guideSteps.map((s, n) => `<div class="step"><b class="n">${n + 1}</b><div><strong>${s[0]}</strong><p>${s[1]}</p></div></div>`).join('')}</section>
       <p class="note">${icon('book')}<span>${t.disclaimer}</span></p>`;
@@ -472,10 +530,12 @@
       <button class="btn block" id="resetBtn">${t.resetData}</button></div>`;
     const p = st.profile;
     return `<h1 class="view-title">${t.moreTitle}</h1>
-      <section class="card profile-card">${dewy('happy', 56)}<div><strong>${p.name ? esc(p.name) : t.myHome}</strong>
-        <div class="meta">${[t['home_' + p.home], ...p.people.map(x => t['p_' + x])].filter(Boolean).join(' · ')}</div></div></section>
+      <section class="card profile-card">${dewy('happy', 64)}<div><strong>${p.name ? esc(p.name) : t.myHome}</strong>
+        <div class="meta">${[t['home_' + p.home], ...p.people.map(x => t['p_' + x])].filter(Boolean).join(' · ')}</div></div>
+        <button class="btn small primary" data-sub="closet">${L('Dress up', '打扮')}</button></section>
       <div class="label">${t.personalise}</div>
       <section class="card menu">
+        <button data-sub="closet">${icon('user')}<span>${L('Dewy’s closet', 'Dewy 的衣櫃')}</span>${icon('chev', 'chev')}</button>
         ${[['rooms', 'home'], ['away', 'plane'], ['badges', 'medal'], ['settings', 'gear']].map(([k, ic]) => `<button data-sub="${k}">${icon(ic)}<span>${t[k] || t.awayTitle}</span>${icon('chev', 'chev')}</button>`).join('')}
       </section>
       <section class="card menu">
@@ -484,6 +544,54 @@
       <p class="lead" style="text-align:center">EcoGuard SDU · ${t.tagline}<br><small>Team T22 · HKU · Prototype</small></p>`;
   }
   const backBtn = () => `<button class="back" id="backBtn">${icon('left')}<span>${T().back}</span></button>`;
+
+  /* ---------- weather-aware moving sky ---------- */
+  function skyMood() {
+    if (!weather) return 'calm';
+    if (weather.raining) return 'rain';
+    if (weather.rh >= 80) return 'humid';
+    if (weather.rh < 65) return 'dry';
+    return 'calm';
+  }
+  const sky = { mood: null, parts: [], raf: 0 };
+  function updateSky() {
+    const m = skyMood(), el = $('#sky'), cv = $('#skyCanvas');
+    if (!el || !cv || sky.mood === m) return;
+    sky.mood = m; el.dataset.mood = m;
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const size = () => { cv.width = innerWidth * dpr; cv.height = innerHeight * dpr; };
+    size(); if (!sky.sized) { addEventListener('resize', () => { size(); }); sky.sized = true; }
+    const W_ = () => cv.width, H_ = () => cv.height, rnd = (a, b) => a + Math.random() * (b - a);
+    const n = { rain: 70, humid: 26, dry: 34, calm: 40 }[m];
+    sky.parts = Array.from({ length: n }, () => ({ x: rnd(0, W_()), y: rnd(0, H_()), r: rnd(1, 3), v: rnd(.3, 1), p: rnd(0, 6.3) }));
+    if (m === 'humid') sky.parts.forEach(q => { q.r = rnd(4, 14) * dpr; q.v = rnd(.25, .7) * dpr; });
+    if (m === 'rain') sky.parts.forEach(q => { q.r = rnd(10, 22) * dpr; q.v = rnd(7, 12) * dpr; });
+    const g = cv.getContext('2d');
+    cancelAnimationFrame(sky.raf);
+    const frame = t => {
+      g.clearRect(0, 0, W_(), H_());
+      sky.parts.forEach(q => {
+        if (m === 'rain') {
+          g.strokeStyle = 'rgba(166,230,255,.35)'; g.lineWidth = 1.4 * dpr; g.beginPath(); g.moveTo(q.x, q.y); g.lineTo(q.x - q.r * .25, q.y + q.r); g.stroke();
+          q.y += q.v; q.x -= q.v * .25; if (q.y > H_()) { q.y = -q.r; q.x = rnd(0, W_() + 60); }
+        } else if (m === 'humid') {
+          const wob = Math.sin(t / 900 + q.p) * 8 * dpr;
+          g.strokeStyle = 'rgba(200,240,255,.35)'; g.lineWidth = 1.3 * dpr; g.fillStyle = 'rgba(122,211,255,.06)';
+          g.beginPath(); g.arc(q.x + wob, q.y, q.r, 0, 7); g.fill(); g.stroke();
+          g.fillStyle = 'rgba(255,255,255,.45)'; g.beginPath(); g.arc(q.x + wob - q.r * .35, q.y - q.r * .35, q.r * .18, 0, 7); g.fill();
+          q.y -= q.v; if (q.y < -q.r * 2) { q.y = H_() + q.r; q.x = rnd(0, W_()); }
+        } else {
+          const tw = .35 + .65 * Math.abs(Math.sin(t / 1100 + q.p));
+          g.fillStyle = m === 'dry' ? `rgba(255,224,138,${.55 * tw})` : `rgba(255,255,255,${.6 * tw})`;
+          g.beginPath(); g.arc(q.x, q.y, q.r * dpr * (m === 'dry' ? 1.1 : .8), 0, 7); g.fill();
+          if (m === 'dry') { q.y -= q.v * .3 * dpr; q.x += Math.sin(t / 2000 + q.p) * .2 * dpr; if (q.y < 0) q.y = H_(); }
+        }
+      });
+      if (!reduced() && !document.hidden) sky.raf = requestAnimationFrame(frame);
+    };
+    frame(0);
+    if (!sky.vis) { document.addEventListener('visibilitychange', () => { if (!document.hidden && !reduced()) { cancelAnimationFrame(sky.raf); const m2 = sky.mood; sky.mood = null; updateSky(); } }); sky.vis = true; }
+  }
 
   /* ---------- render ---------- */
   function render() {
@@ -495,7 +603,10 @@
     const onboarding = !st.profile.done;
     document.body.classList.toggle('onboarding', onboarding);
     const views = { home: vHome, scan: vScan, check: vCheck, plan: vPlan, more: vMore };
-    $('#main').innerHTML = onboarding ? vOnboard() : views[view]();
+    const main = $('#main');
+    main.classList.toggle('enter', enterNext && !reduced()); enterNext = false;
+    main.innerHTML = onboarding ? vOnboard() : views[view]();
+    updateSky();
     document.querySelectorAll('.tabs button').forEach(b => {
       b.setAttribute('aria-current', b.dataset.view === view ? 'page' : 'false');
       b.querySelector('span').textContent = t['nav_' + b.dataset.view];
@@ -505,7 +616,7 @@
       document.querySelectorAll('.meter').forEach(m => m.setAttribute('stroke-dasharray', m.dataset.to));
     }));
   }
-  function go(v, s = null) { view = v; sub = s; addingRoom = false; render(); window.scrollTo(0, 0); }
+  function go(v, s = null) { view = v; sub = s; addingRoom = false; enterNext = true; render(); window.scrollTo(0, 0); }
 
   function toggleIn(arr, v) { return arr.includes(v) ? arr.filter(x => x !== v) : [...arr, v]; }
 
@@ -583,8 +694,11 @@
       answers = {}; trackLevel(r); checkBadges(); save(); toast(t.saved); return go('home');
     }
     // more
-    if (b.dataset.sub) { sub = b.dataset.sub; return render(); }
-    if (b.id === 'backBtn') { sub = null; return render(); }
+    if (b.dataset.sub) { sub = b.dataset.sub; previewMood = null; enterNext = true; render(); return window.scrollTo(0, 0); }
+    if (b.dataset.skin) { st.dewy.skin = b.dataset.skin; save(); return render(); }
+    if (b.dataset.acc) { st.dewy.acc = b.dataset.acc; save(); return render(); }
+    if (b.dataset.mood) { previewMood = b.dataset.mood; return render(); }
+    if (b.id === 'backBtn') { sub = null; enterNext = true; return render(); }
     if (b.dataset.lang) { st.lang = b.dataset.lang; save(); return render(); }
     if (b.dataset.voice) { st.voice = b.dataset.voice; save(); return render(); }
     if (b.id === 'setAway') { st.away = { until: $('#awayDate').value, pre: [], post: [] }; save(); return go('home'); }
@@ -639,6 +753,6 @@
     render();
     if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
   }
-  window.EcoApp = { start, _state: () => st };
+  window.EcoApp = { start, _state: () => st, _dewy: dewy };
   start();
 })();
