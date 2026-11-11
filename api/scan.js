@@ -2,7 +2,7 @@
 // Keeps the Gemini API key secret. Set GEMINI_API_KEY in Vercel → Project → Settings → Environment Variables.
 // Photos are only passed through to the AI and are never stored here.
 
-const MODELS = [process.env.GEMINI_MODEL, 'gemini-3.8-flash', 'gemini-flash-latest'].filter(Boolean);
+const MODELS = [process.env.GEMINI_MODEL, 'gemini-3.5-flash-lite', 'gemini-flash-lite-latest', 'gemini-3.8-flash'].filter(Boolean);
 const MAX_IMAGES = 3;
 const MAX_BYTES = 1.5 * 1024 * 1024; // per image (base64 length check below)
 
@@ -49,21 +49,6 @@ const SCHEMA = {
 module.exports = async (req, res) => {
   const key = process.env.GEMINI_API_KEY;
   if (!key) return res.status(503).json({ error: 'AI scan is not set up yet' });
-  if (req.method === 'GET' && req.query && req.query.probe) {
-    // Speed test: tiny text-only request to one model, with low thinking.
-    const m = String(req.query.probe).replace(/[^a-z0-9.\-]/gi, '');
-    const t0 = Date.now();
-    try {
-      const gc = req.query.think === 'none' ? {} : { thinkingConfig: req.query.think === 'budget' ? { thinkingBudget: 0 } : { thinkingLevel: 'low' } };
-      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key.trim() },
-        body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: 'Reply with the word ok.' }] }], generationConfig: gc }),
-        signal: AbortSignal.timeout(25000),
-      });
-      const d = await r.json();
-      return res.status(200).json({ model: m, status: r.status, ms: Date.now() - t0, text: d?.candidates?.[0]?.content?.parts?.map(p => p.text).join('') || null, err: d?.error?.message?.slice(0, 200) || null });
-    } catch (e) { return res.status(200).json({ model: m, ms: Date.now() - t0, err: e.name + ': ' + e.message }); }
-  }
   if (req.method === 'GET') {
     // Health check: lists the model names this key can use (never shows the key).
     try {
@@ -94,13 +79,13 @@ module.exports = async (req, res) => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key.trim() },
       body: JSON.stringify(b),
-      signal: AbortSignal.timeout(40000),
+      signal: AbortSignal.timeout(25000),
     });
-    // Try each model name until one exists (Google retires old model names).
+    // Try each model until one answers (skips retired, overloaded or slow models).
     let r = null;
     for (const m of MODELS) {
       model = m;
-      try { const probe = await call(body); if (probe.status !== 404) { r = probe; break; } } catch (e) { /* timed out: try the next model */ }
+      try { const probe = await call(body); if (![404, 429, 500, 503].includes(probe.status)) { r = probe; break; } } catch (e) { /* timed out: try the next model */ }
     }
     if (!r) return res.status(504).json({ error: 'The AI took too long. Please try again.', tried: MODELS });
     if (r.status === 400) {
