@@ -47,9 +47,18 @@ const SCHEMA = {
 };
 
 module.exports = async (req, res) => {
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Use POST' });
   const key = process.env.GEMINI_API_KEY;
   if (!key) return res.status(503).json({ error: 'AI scan is not set up yet' });
+  if (req.method === 'GET') {
+    // Health check: lists the model names this key can use (never shows the key).
+    try {
+      const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=200', { headers: { 'x-goog-api-key': key.trim() }, signal: AbortSignal.timeout(10000) });
+      const d = await r.json();
+      const names = (d.models || []).filter(m => (m.supportedGenerationMethods || []).includes('generateContent')).map(m => m.name.replace('models/', ''));
+      return res.status(200).json({ ok: r.ok, models: names, using: MODELS });
+    } catch (e) { return res.status(500).json({ error: 'Could not reach Gemini', detail: e.message }); }
+  }
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Use POST' });
 
   try {
     const { images, lang } = req.body || {};
@@ -70,10 +79,15 @@ module.exports = async (req, res) => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key.trim() },
       body: JSON.stringify(b),
+      signal: AbortSignal.timeout(40000),
     });
     // Try each model name until one exists (Google retires old model names).
-    for (const m of MODELS) { model = m; const probe = await call(body); if (probe.status !== 404) { body._first = probe; break; } }
-    let r = body._first; delete body._first;
+    let r = null;
+    for (const m of MODELS) {
+      model = m;
+      try { const probe = await call(body); if (probe.status !== 404) { r = probe; break; } } catch (e) { /* timed out: try the next model */ }
+    }
+    if (!r) return res.status(504).json({ error: 'The AI took too long. Please try again.', tried: MODELS });
     if (r.status === 400) {
       // Retry once without the strict schema (some models/versions reject it).
       const simple = { ...body, generationConfig: { temperature: 0.2, responseMimeType: 'application/json' } };
@@ -89,8 +103,8 @@ module.exports = async (req, res) => {
     let text = data?.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '{"issues":[]}';
     text = text.replace(/^```(json)?/i, '').replace(/```$/, '').trim();
     const parsed = JSON.parse(text);
-    return res.status(200).json({ issues: (parsed.issues || []).slice(0, 6) });
+    return res.status(200).json({ issues: (parsed.issues || []).slice(0, 6), model });
   } catch (e) {
-    return res.status(500).json({ error: 'Scan failed. Please try again.' });
+    return res.status(500).json({ error: 'Scan failed. Please try again.', detail: String(e && e.message || e).slice(0, 200) });
   }
 };
