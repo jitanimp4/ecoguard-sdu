@@ -2,7 +2,7 @@
 // Keeps the Gemini API key secret. Set GEMINI_API_KEY in Vercel → Project → Settings → Environment Variables.
 // Photos are only passed through to the AI and are never stored here.
 
-const MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+const MODELS = [process.env.GEMINI_MODEL, 'gemini-3.8-flash', 'gemini-flash-latest'].filter(Boolean);
 const MAX_IMAGES = 3;
 const MAX_BYTES = 1.5 * 1024 * 1024; // per image (base64 length check below)
 
@@ -65,12 +65,15 @@ module.exports = async (req, res) => {
       generationConfig: { temperature: 0.2, responseMimeType: 'application/json', responseSchema: SCHEMA },
     };
 
-    const call = b => fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`, {
+    let model = MODELS[0];
+    const call = b => fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key.trim() },
       body: JSON.stringify(b),
     });
-    let r = await call(body);
+    // Try each model name until one exists (Google retires old model names).
+    for (const m of MODELS) { model = m; const probe = await call(body); if (probe.status !== 404) { body._first = probe; break; } }
+    let r = body._first; delete body._first;
     if (r.status === 400) {
       // Retry once without the strict schema (some models/versions reject it).
       const simple = { ...body, generationConfig: { temperature: 0.2, responseMimeType: 'application/json' } };
