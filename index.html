@@ -5,20 +5,22 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>EcoGuard SDU</title>
 <meta name="description" content="Scan once. Know your mold risk. Get one simple action. A mold and humidity helper for Hong Kong homes.">
-<meta name="theme-color" content="#0B1F3A">
+<meta name="theme-color" content="#141233">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="EcoGuard">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Poppins:wght@600;700&display=swap">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@500;700;800&display=swap">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
+<div class="sky" id="sky" aria-hidden="true"><i class="blob b1"></i><i class="blob b2"></i><i class="blob b3"></i><canvas id="skyCanvas"></canvas></div>
 <div class="app">
   <header class="top">
-    <svg class="logo" viewBox="0 0 64 64" aria-hidden="true"><path d="M32 4l22 8v17c0 15-9.5 26-22 31C19.5 55 10 44 10 29V12z" fill="#2EC4B6"/><path d="M32 16s-10 11-10 18a10 10 0 0 0 20 0c0-7-10-18-10-18z" fill="#0B1F3A"/><path d="M28 36c1 3 3 4.5 6 4.5" stroke="#2EC4B6" stroke-width="3" fill="none" stroke-linecap="round"/></svg>
+    <svg class="logo" viewBox="0 0 64 64" aria-hidden="true"><path d="M32 4l22 8v17c0 15-9.5 26-22 31C19.5 55 10 44 10 29V12z" fill="#2EC4B6"/><path d="M32 16s-10 11-10 18a10 10 0 0 0 20 0c0-7-10-18-10-18z" fill="#141233"/><path d="M28 36c1 3 3 4.5 6 4.5" stroke="#2EC4B6" stroke-width="3" fill="none" stroke-linecap="round"/></svg>
     <div class="brand">EcoGuard SDU<small id="tagline">Scan once. Breathe easier.</small></div>
     <button class="lang-btn" id="langBtn" aria-label="Switch language">中文</button>
   </header>
